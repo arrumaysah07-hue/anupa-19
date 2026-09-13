@@ -1,9 +1,16 @@
 "use client";
 
-import { ChangeEvent, useState } from "react";
+import {
+  ChangeEvent,
+  DragEvent,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import { supabase } from "@/lib/supabase";
 
 type Memory = {
-  id: number;
+  id: string;
   image: string;
   name: string;
   caption: string;
@@ -13,7 +20,7 @@ type Memory = {
 
 const starterMemories: Memory[] = [
   {
-    id: 1,
+    id: "starter-1",
     image: "",
     name: "Anonymous witness",
     caption: "Proof that we occasionally behave normally.",
@@ -21,7 +28,7 @@ const starterMemories: Memory[] = [
     hearts: 3,
   },
   {
-    id: 2,
+    id: "starter-2",
     image: "",
     name: "The committee",
     caption: "No context will be provided. Figure it out.",
@@ -29,7 +36,7 @@ const starterMemories: Memory[] = [
     hearts: 5,
   },
   {
-    id: 3,
+    id: "starter-3",
     image: "",
     name: "Someone who knows too much",
     caption: "19 years of Anupa. Humanity survived.",
@@ -38,6 +45,8 @@ const starterMemories: Memory[] = [
   },
 ];
 
+const rotations = [-2.2, 1.5, -1.2, 2.1, -1.7, 1.1];
+
 export default function MemoryWall() {
   const [memories, setMemories] =
     useState<Memory[]>(starterMemories);
@@ -45,47 +54,124 @@ export default function MemoryWall() {
   const [showUploader, setShowUploader] =
     useState(false);
 
+  const [selectedFile, setSelectedFile] =
+    useState<File | null>(null);
+
   const [selectedImage, setSelectedImage] =
     useState<string | null>(null);
 
   const [name, setName] = useState("");
-
   const [caption, setCaption] = useState("");
 
   const [submitted, setSubmitted] =
     useState(false);
 
   const [hearted, setHearted] =
-    useState<number[]>([]);
+    useState<string[]>([]);
 
   const [dragging, setDragging] =
     useState(false);
 
+  const [loading, setLoading] =
+    useState(true);
+
+  const [uploading, setUploading] =
+    useState(false);
+
+  const [error, setError] =
+    useState<string | null>(null);
 
   /* -------------------------------------------------------
-     PHOTO
+     LOAD MEMORIES FROM SUPABASE
+     ------------------------------------------------------- */
+
+  useEffect(() => {
+    const loadMemories = async () => {
+      setLoading(true);
+
+      const { data, error } = await supabase
+        .from("memories")
+        .select("id, name, caption, image_path, hearts, created_at")
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        console.error("Could not load memories:", error);
+        setError(
+          "The archive couldn't be reached right now."
+        );
+        setLoading(false);
+        return;
+      }
+
+      const savedMemories: Memory[] =
+        (data ?? []).map((memory, index) => {
+          let image = "";
+
+          if (memory.image_path) {
+            const { data: publicData } =
+              supabase.storage
+                .from("scrapbook-media")
+                .getPublicUrl(memory.image_path);
+
+            image = publicData.publicUrl;
+          }
+
+          return {
+            id: memory.id,
+            image,
+            name: memory.name,
+            caption: memory.caption ?? "",
+            rotation:
+              rotations[index % rotations.length],
+            hearts: memory.hearts ?? 0,
+          };
+        });
+
+      setMemories([
+        ...starterMemories,
+        ...savedMemories,
+      ]);
+
+      setLoading(false);
+    };
+
+    loadMemories();
+  }, []);
+
+  /* -------------------------------------------------------
+     PHOTO VALIDATION
      ------------------------------------------------------- */
 
   const processFile = (file: File) => {
-    if (!file.type.startsWith("image/")) {
-      alert("That isn't a photo 😭");
+    setError(null);
+
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+    ];
+
+    if (!allowedTypes.includes(file.type)) {
+      alert(
+        "Only JPG, PNG or WEBP photos are allowed 😭"
+      );
       return;
     }
 
     if (file.size > 8 * 1024 * 1024) {
-      alert("That photo is HUGE. Keep it under 8MB.");
+      alert(
+        "That photo is HUGE. Keep it under 8MB."
+      );
       return;
     }
 
-    const reader = new FileReader();
+    setSelectedFile(file);
 
-    reader.onload = () => {
-      setSelectedImage(reader.result as string);
-    };
+    const previewUrl =
+      URL.createObjectURL(file);
 
-    reader.readAsDataURL(file);
+    setSelectedImage(previewUrl);
   };
-
 
   const handleImageChange = (
     event: ChangeEvent<HTMLInputElement>
@@ -97,9 +183,8 @@ export default function MemoryWall() {
     }
   };
 
-
   const handleDrop = (
-    event: React.DragEvent<HTMLLabelElement>
+    event: DragEvent<HTMLLabelElement>
   ) => {
     event.preventDefault();
     setDragging(false);
@@ -112,19 +197,22 @@ export default function MemoryWall() {
     }
   };
 
-
   /* -------------------------------------------------------
-     SUBMIT
+     SUBMIT MEMORY
      ------------------------------------------------------- */
 
-  const submitMemory = () => {
-    if (!selectedImage) {
-      alert("We need the actual photo first. 😭");
+  const submitMemory = async () => {
+    if (!selectedFile) {
+      alert(
+        "We need the actual photo first. 😭"
+      );
       return;
     }
 
     if (!name.trim()) {
-      alert("At least tell us who you are.");
+      alert(
+        "At least tell us who you are."
+      );
       return;
     }
 
@@ -135,32 +223,130 @@ export default function MemoryWall() {
       return;
     }
 
-    const newMemory: Memory = {
-      id: Date.now(),
-      image: selectedImage,
-      name: name.trim(),
-      caption: caption.trim(),
-      rotation: Math.random() * 5 - 2.5,
-      hearts: 0,
-    };
+    setUploading(true);
+    setError(null);
 
-    setMemories((current) => [
-      ...current,
-      newMemory,
-    ]);
+    try {
+      const extension =
+        selectedFile.name
+          .split(".")
+          .pop()
+          ?.toLowerCase() || "jpg";
 
-    setName("");
-    setCaption("");
-    setSelectedImage(null);
-    setSubmitted(true);
+      const filePath =
+        `memories/${crypto.randomUUID()}.${extension}`;
+
+      /* Upload actual image */
+      const { error: uploadError } =
+        await supabase.storage
+          .from("scrapbook-media")
+          .upload(
+            filePath,
+            selectedFile,
+            {
+              contentType: selectedFile.type,
+              upsert: false,
+            }
+          );
+
+      if (uploadError) {
+        console.error(
+          "Image upload failed:",
+          uploadError
+        );
+        throw new Error(
+          "The photo couldn't be uploaded."
+        );
+      }
+
+      /* Get public image URL */
+      const { data: publicData } =
+        supabase.storage
+          .from("scrapbook-media")
+          .getPublicUrl(filePath);
+
+      /* Save memory information */
+      const { data: insertedMemory, error: insertError } =
+        await supabase
+          .from("memories")
+          .insert({
+            name: name.trim(),
+            caption: caption.trim(),
+            image_path: filePath,
+            hearts: 0,
+          })
+          .select()
+          .single();
+
+      if (insertError || !insertedMemory) {
+        console.error(
+          "Memory database insert failed:",
+          insertError
+        );
+
+        /* Try to remove orphaned image */
+        await supabase.storage
+          .from("scrapbook-media")
+          .remove([filePath]);
+
+        throw new Error(
+          "The memory couldn't be saved."
+        );
+      }
+
+      const newMemory: Memory = {
+        id: insertedMemory.id,
+        image: publicData.publicUrl,
+        name: insertedMemory.name,
+        caption: insertedMemory.caption ?? "",
+        rotation:
+          rotations[
+            memories.length % rotations.length
+          ],
+        hearts: 0,
+      };
+
+      setMemories((current) => [
+        ...current,
+        newMemory,
+      ]);
+
+      setName("");
+      setCaption("");
+      setSelectedFile(null);
+
+      if (selectedImage) {
+        URL.revokeObjectURL(selectedImage);
+      }
+
+      setSelectedImage(null);
+      setSubmitted(true);
+    } catch (submissionError) {
+      console.error(
+        "Memory submission failed:",
+        submissionError
+      );
+
+      setError(
+        submissionError instanceof Error
+          ? submissionError.message
+          : "Something went wrong while saving the memory."
+      );
+    } finally {
+      setUploading(false);
+    }
   };
-
 
   /* -------------------------------------------------------
      HEART
+     
+     Hearts are intentionally kept local for now.
+     We will make them shared/persistent later with a
+     proper reaction system so random visitors cannot
+     manipulate the database directly.
      ------------------------------------------------------- */
 
-  const toggleHeart = (id: number) => {
+  const toggleHeart = (id: string) => {
     const alreadyHearted =
       hearted.includes(id);
 
@@ -188,54 +374,41 @@ export default function MemoryWall() {
     );
   };
 
-
   /* -------------------------------------------------------
-     REMOVE
-     ------------------------------------------------------- */
-
-  const removeMemory = (id: number) => {
-    if (
-      !window.confirm(
-        "Remove this memory from the scrapbook?"
-      )
-    ) {
-      return;
-    }
-
-    setMemories((current) =>
-      current.filter(
-        (memory) => memory.id !== id
-      )
-    );
-  };
-
-
-  /* -------------------------------------------------------
-     CLOSE
+     CLOSE UPLOADER
      ------------------------------------------------------- */
 
   const closeUploader = () => {
     setShowUploader(false);
     setSubmitted(false);
+    setSelectedFile(null);
+
+    if (selectedImage) {
+      URL.revokeObjectURL(selectedImage);
+    }
+
     setSelectedImage(null);
     setName("");
     setCaption("");
     setDragging(false);
+    setError(null);
   };
 
+  const hasSavedMemories = useMemo(
+    () =>
+      memories.some(
+        (memory) =>
+          !memory.id.startsWith("starter-")
+      ),
+    [memories]
+  );
 
   return (
     <section
       id="memories"
       className="mw-root"
     >
-
       <style jsx>{`
-
-        /* =================================================
-           MEMORY WALL
-           ================================================= */
-
         .mw-root {
           position: relative;
           width: min(1120px, calc(100% - 40px));
@@ -248,11 +421,6 @@ export default function MemoryWall() {
         .mw-root * {
           box-sizing: border-box;
         }
-
-
-        /* =================================================
-           HEADING
-           ================================================= */
 
         .mw-heading {
           display: flex;
@@ -275,11 +443,6 @@ export default function MemoryWall() {
           letter-spacing: -.045em;
           font-weight: 800;
         }
-
-
-        /* =================================================
-           INTRO
-           ================================================= */
 
         .mw-intro {
           position: relative;
@@ -333,11 +496,6 @@ export default function MemoryWall() {
           line-height: 1.6;
         }
 
-
-        /* =================================================
-           ADD BUTTON
-           ================================================= */
-
         .mw-add {
           flex: 0 0 auto;
           border: 1.5px solid #292827;
@@ -356,21 +514,13 @@ export default function MemoryWall() {
         }
 
         .mw-add:hover {
-          transform:
-            rotate(-1deg)
-            translateY(-2px);
+          transform: rotate(-1deg) translateY(-2px);
           box-shadow: 6px 7px 0 rgba(41,40,39,.18);
         }
 
-
-        /* =================================================
-           POLAROIDS
-           ================================================= */
-
         .mw-wall {
           display: grid;
-          grid-template-columns:
-            repeat(3, minmax(0, 1fr));
+          grid-template-columns: repeat(3, minmax(0, 1fr));
           gap: 42px 28px;
           align-items: start;
         }
@@ -380,19 +530,15 @@ export default function MemoryWall() {
           background: #fffdf8;
           padding: 13px 13px 19px;
           border: 1px solid #292827;
-          box-shadow:
-            8px 10px 0 rgba(41,40,39,.12);
+          box-shadow: 8px 10px 0 rgba(41,40,39,.12);
           transition:
             transform .2s ease,
             box-shadow .2s ease;
         }
 
         .mw-polaroid:hover {
-          transform:
-            rotate(0deg)
-            translateY(-6px) !important;
-          box-shadow:
-            10px 15px 0 rgba(41,40,39,.15);
+          transform: rotate(0deg) translateY(-6px) !important;
+          box-shadow: 10px 15px 0 rgba(41,40,39,.15);
           z-index: 3;
         }
 
@@ -403,31 +549,26 @@ export default function MemoryWall() {
           background: rgba(231,197,102,.72);
           top: -10px;
           left: 50%;
-          transform:
-            translateX(-50%)
-            rotate(-2deg);
+          transform: translateX(-50%) rotate(-2deg);
           z-index: 3;
         }
 
-        .mw-photo {
+        .mw-photo,
+        .mw-placeholder {
           width: 100%;
           aspect-ratio: 1 / .82;
-          object-fit: cover;
           display: block;
+        }
+
+        .mw-photo {
+          object-fit: cover;
           background: #eee7d8;
         }
 
         .mw-placeholder {
-          width: 100%;
-          aspect-ratio: 1 / .82;
           display: grid;
           place-items: center;
-          background:
-            linear-gradient(
-              135deg,
-              #f1d8d5,
-              #e4edf3
-            );
+          background: linear-gradient(135deg, #f1d8d5, #e4edf3);
           font-size: 38px;
         }
 
@@ -446,15 +587,9 @@ export default function MemoryWall() {
           letter-spacing: .05em;
         }
 
-
-        /* =================================================
-           MEMORY ACTIONS
-           ================================================= */
-
         .mw-actions {
           display: flex;
           align-items: center;
-          justify-content: space-between;
           margin-top: 13px;
         }
 
@@ -488,23 +623,6 @@ export default function MemoryWall() {
           line-height: 1;
         }
 
-        .mw-delete {
-          border: 0;
-          background: transparent;
-          color: #aaa39a;
-          cursor: pointer;
-          font-size: 18px;
-        }
-
-        .mw-delete:hover {
-          color: #df6666;
-        }
-
-
-        /* =================================================
-           EMPTY CARD
-           ================================================= */
-
         .mw-empty {
           min-height: 330px;
           border: 1.5px dashed #aaa39a;
@@ -523,9 +641,7 @@ export default function MemoryWall() {
         }
 
         .mw-empty:hover {
-          transform:
-            rotate(-1deg)
-            translateY(-4px);
+          transform: rotate(-1deg) translateY(-4px);
           background: #fffdf8;
         }
 
@@ -553,10 +669,24 @@ export default function MemoryWall() {
           font-weight: 400;
         }
 
+        .mw-loading {
+          grid-column: 1 / -1;
+          padding: 40px;
+          text-align: center;
+          color: #77736d;
+          font-family: "DM Mono", monospace;
+          font-size: 11px;
+          letter-spacing: .08em;
+        }
 
-        /* =================================================
-           MODAL
-           ================================================= */
+        .mw-error {
+          margin: -30px 0 35px;
+          padding: 12px 15px;
+          border: 1px solid #df7775;
+          background: #f6dede;
+          font-size: 13px;
+          color: #6d4442;
+        }
 
         .mw-overlay {
           position: fixed;
@@ -571,19 +701,9 @@ export default function MemoryWall() {
         }
 
         @keyframes mwFade {
-          from {
-            opacity: 0;
-          }
-
-          to {
-            opacity: 1;
-          }
+          from { opacity: 0; }
+          to { opacity: 1; }
         }
-
-
-        /* =================================================
-           SCRAPBOOK PAPER
-           ================================================= */
 
         .mw-modal {
           position: relative;
@@ -593,10 +713,8 @@ export default function MemoryWall() {
           padding: 40px 44px 44px;
           background: #fffaf0;
           border: 1.5px solid #292827;
-          box-shadow:
-            13px 15px 0 rgba(0,0,0,.18);
-          transform:
-            rotate(-.7deg);
+          box-shadow: 13px 15px 0 rgba(0,0,0,.18);
+          transform: rotate(-.7deg);
           animation: mwPaper .28s ease;
         }
 
@@ -616,34 +734,20 @@ export default function MemoryWall() {
           top: -13px;
           left: 50%;
           background: rgba(232,195,91,.78);
-          transform:
-            translateX(-50%)
-            rotate(2deg);
+          transform: translateX(-50%) rotate(2deg);
           pointer-events: none;
         }
 
         @keyframes mwPaper {
           from {
             opacity: 0;
-            transform:
-              translateY(15px)
-              rotate(-2deg)
-              scale(.98);
+            transform: translateY(15px) rotate(-2deg) scale(.98);
           }
-
           to {
             opacity: 1;
-            transform:
-              translateY(0)
-              rotate(-.7deg)
-              scale(1);
+            transform: translateY(0) rotate(-.7deg) scale(1);
           }
         }
-
-
-        /* =================================================
-           CLOSE
-           ================================================= */
 
         .mw-close {
           position: absolute;
@@ -664,11 +768,6 @@ export default function MemoryWall() {
         .mw-close:hover {
           transform: rotate(8deg);
         }
-
-
-        /* =================================================
-           MODAL TEXT
-           ================================================= */
 
         .mw-modal-content {
           position: relative;
@@ -698,11 +797,6 @@ export default function MemoryWall() {
           font-size: 18px;
           line-height: 1.3;
         }
-
-
-        /* =================================================
-           PHOTO DROP
-           ================================================= */
 
         .mw-drop {
           position: relative;
@@ -752,11 +846,6 @@ export default function MemoryWall() {
           letter-spacing: .04em;
         }
 
-
-        /* =================================================
-           PREVIEW
-           ================================================= */
-
         .mw-preview-wrap {
           display: flex;
           justify-content: center;
@@ -788,7 +877,7 @@ export default function MemoryWall() {
 
         .mw-change {
           display: block;
-          margin: 11px auto 0;
+          margin: 11px auto 20px;
           border: 0;
           background: transparent;
           text-decoration: underline;
@@ -796,11 +885,6 @@ export default function MemoryWall() {
           font-size: 9px;
           cursor: pointer;
         }
-
-
-        /* =================================================
-           FORM
-           ================================================= */
 
         .mw-field {
           display: block;
@@ -841,11 +925,6 @@ export default function MemoryWall() {
           resize: vertical;
         }
 
-
-        /* =================================================
-           SUBMIT
-           ================================================= */
-
         .mw-submit {
           width: 100%;
           margin-top: 5px;
@@ -863,15 +942,25 @@ export default function MemoryWall() {
             box-shadow .18s ease;
         }
 
-        .mw-submit:hover {
+        .mw-submit:hover:not(:disabled) {
           transform: translateY(-2px);
           box-shadow: 6px 7px 0 rgba(41,40,39,.16);
         }
 
+        .mw-submit:disabled {
+          opacity: .6;
+          cursor: wait;
+        }
 
-        /* =================================================
-           SUCCESS
-           ================================================= */
+        .mw-form-error {
+          margin: 12px 0;
+          padding: 10px 12px;
+          background: #f6dede;
+          border: 1px solid #df7775;
+          color: #6d4442;
+          font-size: 12px;
+          line-height: 1.5;
+        }
 
         .mw-success {
           position: relative;
@@ -906,18 +995,9 @@ export default function MemoryWall() {
           line-height: 1.6;
         }
 
-
-        /* =================================================
-           MOBILE
-           ================================================= */
-
         @media (max-width: 760px) {
-
           .mw-root {
-            width: min(
-              100% - 24px,
-              620px
-            );
+            width: min(100% - 24px, 620px);
             padding: 75px 0 90px;
           }
 
@@ -946,7 +1026,8 @@ export default function MemoryWall() {
             padding: 0 8px;
           }
 
-          .mw-polaroid {
+          .mw-polaroid,
+          .mw-empty {
             max-width: 390px;
             width: 100%;
             margin: auto;
@@ -954,9 +1035,6 @@ export default function MemoryWall() {
 
           .mw-empty {
             min-height: 220px;
-            max-width: 390px;
-            width: 100%;
-            margin: auto;
           }
 
           .mw-overlay {
@@ -975,18 +1053,12 @@ export default function MemoryWall() {
           .mw-modal-title {
             font-size: 32px;
           }
-
         }
-
       `}</style>
 
-
-      {/* =================================================
-          HEADING
-          ================================================= */}
+      {/* HEADING */}
 
       <div className="mw-heading">
-
         <span className="mw-number">
           02
         </span>
@@ -994,18 +1066,12 @@ export default function MemoryWall() {
         <h2>
           The memory wall.
         </h2>
-
       </div>
 
-
-      {/* =================================================
-          INTRO
-          ================================================= */}
+      {/* INTRO */}
 
       <div className="mw-intro">
-
         <div className="mw-intro-copy">
-
           <p className="mw-eyebrow">
             THE ANUPA ARCHIVES · OPEN TO THE PUBLIC
           </p>
@@ -1019,7 +1085,6 @@ export default function MemoryWall() {
             in here. Future historians will
             definitely need it.
           </p>
-
         </div>
 
         <button
@@ -1031,106 +1096,82 @@ export default function MemoryWall() {
         >
           + pin a memory
         </button>
-
       </div>
 
+      {error && !showUploader && (
+        <div className="mw-error">
+          {error}
+        </div>
+      )}
 
-      {/* =================================================
-          WALL
-          ================================================= */}
+      {/* WALL */}
 
       <div className="mw-wall">
+        {loading ? (
+          <div className="mw-loading">
+            OPENING THE ANUPA ARCHIVES...
+          </div>
+        ) : (
+          memories.map((memory) => {
+            const isHearted =
+              hearted.includes(memory.id);
 
-        {memories.map((memory) => {
+            return (
+              <article
+                className="mw-polaroid"
+                key={memory.id}
+                style={{
+                  transform:
+                    `rotate(${memory.rotation}deg)`,
+                }}
+              >
+                <div className="mw-tape" />
 
-          const isHearted =
-            hearted.includes(memory.id);
-
-          return (
-
-            <article
-              className="mw-polaroid"
-              key={memory.id}
-              style={{
-                transform:
-                  `rotate(${memory.rotation}deg)`,
-              }}
-            >
-
-              <div className="mw-tape" />
-
-              {memory.image ? (
-
-                <img
-                  src={memory.image}
-                  alt={memory.caption}
-                  className="mw-photo"
-                />
-
-              ) : (
-
-                <div className="mw-placeholder">
-                  📸
-                </div>
-
-              )}
-
-              <p className="mw-caption">
-                {memory.caption}
-              </p>
-
-              <p className="mw-name">
-                — {memory.name}
-              </p>
-
-
-              <div className="mw-actions">
-
-                <button
-                  type="button"
-                  className={`mw-heart ${
-                    isHearted
-                      ? "liked"
-                      : ""
-                  }`}
-                  onClick={() =>
-                    toggleHeart(memory.id)
-                  }
-                >
-
-                  <span className="mw-heart-icon">
-                    {isHearted
-                      ? "♥"
-                      : "♡"}
-                  </span>
-
-                  {memory.hearts}
-
-                </button>
-
-
-                {memory.image && (
-
-                  <button
-                    type="button"
-                    className="mw-delete"
-                    onClick={() =>
-                      removeMemory(memory.id)
-                    }
-                    aria-label="Remove memory"
-                  >
-                    ×
-                  </button>
-
+                {memory.image ? (
+                  <img
+                    src={memory.image}
+                    alt={memory.caption}
+                    className="mw-photo"
+                  />
+                ) : (
+                  <div className="mw-placeholder">
+                    📸
+                  </div>
                 )}
 
-              </div>
+                <p className="mw-caption">
+                  {memory.caption}
+                </p>
 
-            </article>
+                <p className="mw-name">
+                  — {memory.name}
+                </p>
 
-          );
-        })}
+                <div className="mw-actions">
+                  <button
+                    type="button"
+                    className={`mw-heart ${
+                      isHearted
+                        ? "liked"
+                        : ""
+                    }`}
+                    onClick={() =>
+                      toggleHeart(memory.id)
+                    }
+                  >
+                    <span className="mw-heart-icon">
+                      {isHearted
+                        ? "♥"
+                        : "♡"}
+                    </span>
 
+                    {memory.hearts}
+                  </button>
+                </div>
+              </article>
+            );
+          })
+        )}
 
         {/* EMPTY SPACE */}
 
@@ -1141,7 +1182,6 @@ export default function MemoryWall() {
             setShowUploader(true)
           }
         >
-
           <span>
             THERE'S AN EMPTY SPACE
           </span>
@@ -1153,48 +1193,37 @@ export default function MemoryWall() {
           <b>
             +
           </b>
-
         </button>
-
       </div>
 
-
-      {/* =================================================
-          UPLOAD MODAL
-          ================================================= */}
+      {/* UPLOAD MODAL */}
 
       {showUploader && (
-
         <div
           className="mw-overlay"
           onMouseDown={(event) => {
-
             if (
               event.target ===
-              event.currentTarget
+              event.currentTarget &&
+              !uploading
             ) {
               closeUploader();
             }
-
           }}
         >
-
           <div className="mw-modal">
-
             <button
               type="button"
               className="mw-close"
               onClick={closeUploader}
               aria-label="Close"
+              disabled={uploading}
             >
               ×
             </button>
 
-
             {!submitted ? (
-
               <div className="mw-modal-content">
-
                 <p className="mw-modal-label">
                   MEMORY #??? · ANUPA ARCHIVES
                 </p>
@@ -1209,30 +1238,42 @@ export default function MemoryWall() {
                   Somewhere between cute and incriminating.
                 </p>
 
-
                 {/* PHOTO */}
 
                 {selectedImage ? (
+                  <>
+                    <div className="mw-preview-wrap">
+                      <div className="mw-preview">
+                        <img
+                          src={selectedImage}
+                          alt="Selected memory"
+                        />
 
-                  <div className="mw-preview-wrap">
-
-                    <div className="mw-preview">
-
-                      <img
-                        src={selectedImage}
-                        alt="Selected memory"
-                      />
-
-                      <p className="mw-preview-caption">
-                        future Anupa will see this.
-                      </p>
-
+                        <p className="mw-preview-caption">
+                          future Anupa will see this.
+                        </p>
+                      </div>
                     </div>
 
-                  </div>
+                    <button
+                      type="button"
+                      className="mw-change"
+                      onClick={() => {
+                        if (selectedImage) {
+                          URL.revokeObjectURL(
+                            selectedImage
+                          );
+                        }
 
+                        setSelectedImage(null);
+                        setSelectedFile(null);
+                      }}
+                      disabled={uploading}
+                    >
+                      choose a different photo
+                    </button>
+                  </>
                 ) : (
-
                   <label
                     className={`mw-drop ${
                       dragging
@@ -1248,10 +1289,9 @@ export default function MemoryWall() {
                     }
                     onDrop={handleDrop}
                   >
-
                     <input
                       type="file"
-                      accept="image/*"
+                      accept="image/jpeg,image/png,image/webp"
                       onChange={
                         handleImageChange
                       }
@@ -1279,31 +1319,12 @@ export default function MemoryWall() {
                     <small>
                       JPG · PNG · WEBP · max 8MB
                     </small>
-
                   </label>
-
                 )}
-
-
-                {selectedImage && (
-
-                  <button
-                    type="button"
-                    className="mw-change"
-                    onClick={() =>
-                      setSelectedImage(null)
-                    }
-                  >
-                    choose a different photo
-                  </button>
-
-                )}
-
 
                 {/* NAME */}
 
                 <label className="mw-field">
-
                   <span>
                     WHO ARE YOU?
                   </span>
@@ -1317,16 +1338,14 @@ export default function MemoryWall() {
                       )
                     }
                     placeholder="Your name..."
-                    maxLength={50}
+                    maxLength={60}
+                    disabled={uploading}
                   />
-
                 </label>
-
 
                 {/* CAPTION */}
 
                 <label className="mw-field">
-
                   <span>
                     WHAT'S GOING ON HERE?
                   </span>
@@ -1340,26 +1359,30 @@ export default function MemoryWall() {
                       )
                     }
                     placeholder="This was the day..."
-                    maxLength={180}
+                    maxLength={500}
+                    disabled={uploading}
                   />
-
                 </label>
 
+                {error && (
+                  <div className="mw-form-error">
+                    {error}
+                  </div>
+                )}
 
                 <button
                   type="button"
                   className="mw-submit"
                   onClick={submitMemory}
+                  disabled={uploading}
                 >
-                  ✎ caption it & pin it →
+                  {uploading
+                    ? "uploading to the archives..."
+                    : "✎ caption it & pin it →"}
                 </button>
-
               </div>
-
             ) : (
-
               <div className="mw-success">
-
                 <div className="mw-success-sticker">
                   ✓
                 </div>
@@ -1385,17 +1408,11 @@ export default function MemoryWall() {
                 >
                   back to the scrapbook →
                 </button>
-
               </div>
-
             )}
-
           </div>
-
         </div>
-
       )}
-
     </section>
   );
 }

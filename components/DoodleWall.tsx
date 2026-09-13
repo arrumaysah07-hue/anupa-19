@@ -6,13 +6,13 @@ import {
   useState,
 } from "react";
 
+import { supabase } from "@/lib/supabase";
+
 type Doodle = {
-  id: number;
+  id: string;
   image: string;
   name: string;
 };
-
-const starterDoodles: Doodle[] = [];
 
 const colours = [
   "#292827",
@@ -45,13 +45,66 @@ export default function DoodleWall() {
     useState("");
 
   const [doodles, setDoodles] =
-    useState<Doodle[]>(starterDoodles);
+    useState<Doodle[]>([]);
 
   const [hasDrawing, setHasDrawing] =
     useState(false);
 
   const [saved, setSaved] =
     useState(false);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [saving, setSaving] =
+    useState(false);
+
+
+  /* -------------------------------------------------------
+     LOAD DOODLES FROM SUPABASE
+     ------------------------------------------------------- */
+
+  useEffect(() => {
+    const loadDoodles = async () => {
+      const { data, error } = await supabase
+        .from("doodles")
+        .select("id, name, image_path")
+        .order("created_at", {
+          ascending: true,
+        });
+
+      if (error) {
+        console.error(
+          "Couldn't load doodles:",
+          error
+        );
+
+        setLoading(false);
+        return;
+      }
+
+      const loadedDoodles: Doodle[] =
+        (data || []).map((doodle) => {
+          const { data: publicUrl } =
+            supabase.storage
+              .from("scrapbook-media")
+              .getPublicUrl(
+                doodle.image_path
+              );
+
+          return {
+            id: doodle.id,
+            name: doodle.name,
+            image: publicUrl.publicUrl,
+          };
+        });
+
+      setDoodles(loadedDoodles);
+      setLoading(false);
+    };
+
+    loadDoodles();
+  }, []);
 
 
   /* -------------------------------------------------------
@@ -66,18 +119,6 @@ export default function DoodleWall() {
     const resizeCanvas = () => {
       const rect =
         canvas.getBoundingClientRect();
-
-      const previous =
-        canvas.width > 0
-          ? canvas
-              .getContext("2d")
-              ?.getImageData(
-                0,
-                0,
-                canvas.width,
-                canvas.height
-              )
-          : null;
 
       const ratio =
         window.devicePixelRatio || 1;
@@ -106,12 +147,6 @@ export default function DoodleWall() {
 
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
-
-      if (previous) {
-        // Canvas resize protection.
-        // The drawing remains usable even when
-        // the browser changes size.
-      }
     };
 
     resizeCanvas();
@@ -166,13 +201,16 @@ export default function DoodleWall() {
 
   const getPoint = (
     event:
-      | React.PointerEvent<HTMLCanvasElement>
+      React.PointerEvent<HTMLCanvasElement>
   ) => {
     const canvas =
       canvasRef.current;
 
     if (!canvas) {
-      return { x: 0, y: 0 };
+      return {
+        x: 0,
+        y: 0,
+      };
     }
 
     const rect =
@@ -334,14 +372,16 @@ export default function DoodleWall() {
       0,
       0
     );
+
+    setHasDrawing(true);
   };
 
 
   /* -------------------------------------------------------
-     SAVE DOODLE
+     SAVE DOODLE TO SUPABASE
      ------------------------------------------------------- */
 
-  const saveDoodle = () => {
+  const saveDoodle = async () => {
     const canvas =
       canvasRef.current;
 
@@ -352,32 +392,139 @@ export default function DoodleWall() {
       return;
     }
 
-    const image =
-      canvas.toDataURL(
-        "image/png"
+    if (saving) return;
+
+    setSaving(true);
+
+    let imagePath = "";
+
+    try {
+      const blob = await new Promise<Blob | null>(
+        (resolve) => {
+          canvas.toBlob(
+            (result) => resolve(result),
+            "image/png"
+          );
+        }
       );
 
-    setDoodles((current) => [
-      ...current,
-      {
-        id: Date.now(),
-        image,
-        name:
-          name.trim() ||
-          "Anonymous artist",
-      },
-    ]);
+      if (!blob) {
+        throw new Error(
+          "Couldn't create the doodle image."
+        );
+      }
 
-    setName("");
+      if (blob.size > 8 * 1024 * 1024) {
+        throw new Error(
+          "This doodle is too large. Please make a smaller drawing."
+        );
+      }
 
-    setSaved(true);
+      const fileName =
+        `${crypto.randomUUID()}.png`;
 
-    setTimeout(
-      () => setSaved(false),
-      2200
-    );
+      imagePath =
+        `doodles/${fileName}`;
 
-    clearCanvas();
+
+      /* Upload image */
+
+      const { error: uploadError } =
+        await supabase.storage
+          .from("scrapbook-media")
+          .upload(
+            imagePath,
+            blob,
+            {
+              contentType: "image/png",
+              upsert: false,
+            }
+          );
+
+      if (uploadError) {
+        throw new Error(
+          `Couldn't upload the doodle: ${uploadError.message}`
+        );
+      }
+
+
+      /* Save database record */
+
+      const { data, error: databaseError } =
+        await supabase
+          .from("doodles")
+          .insert({
+            name:
+              name.trim() ||
+              "Anonymous artist",
+            image_path: imagePath,
+          })
+          .select(
+            "id, name, image_path"
+          )
+          .single();
+
+      if (databaseError || !data) {
+        // Clean up the uploaded image if
+        // the database insert fails.
+        await supabase.storage
+          .from("scrapbook-media")
+          .remove([imagePath]);
+
+        throw new Error(
+          databaseError?.message ||
+            "Couldn't save the doodle."
+        );
+      }
+
+
+      /* Create public image URL */
+
+      const { data: publicUrl } =
+        supabase.storage
+          .from("scrapbook-media")
+          .getPublicUrl(
+            data.image_path
+          );
+
+
+      /* Add it to the visible wall */
+
+      setDoodles((current) => [
+        ...current,
+        {
+          id: data.id,
+          image: publicUrl.publicUrl,
+          name: data.name,
+        },
+      ]);
+
+      setName("");
+
+      setSaved(true);
+
+      setTimeout(
+        () => setSaved(false),
+        2200
+      );
+
+      clearCanvas();
+
+      historyRef.current = [];
+    } catch (error) {
+      console.error(
+        "Couldn't save doodle:",
+        error
+      );
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Couldn't save the doodle."
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
 
@@ -556,11 +703,23 @@ export default function DoodleWall() {
           cursor: pointer;
         }
 
+        .artist-row button:disabled {
+          opacity: .6;
+          cursor: wait;
+        }
+
         .saved-note {
           margin: 12px 0 0;
           color: #78956f;
           font-family: "Kalam", cursive;
           font-size: 15px;
+        }
+
+        .loading-note {
+          margin-top: 25px;
+          color: #706c66;
+          font-family: "DM Mono", monospace;
+          font-size: 8px;
         }
 
         .doodle-wall {
@@ -640,6 +799,7 @@ export default function DoodleWall() {
 
 
       <div className="doodle-heading">
+
         <span className="doodle-number">
           03
         </span>
@@ -647,6 +807,7 @@ export default function DoodleWall() {
         <h2>
           The doodle wall.
         </h2>
+
       </div>
 
 
@@ -669,6 +830,7 @@ export default function DoodleWall() {
         <div className="drawing-tape" />
 
         <div className="canvas-label">
+
           <span>
             ANUPA'S VERY SERIOUS ART DEPARTMENT
           </span>
@@ -676,6 +838,7 @@ export default function DoodleWall() {
           <strong>
             DRAW HERE ↓
           </strong>
+
         </div>
 
 
@@ -769,13 +932,17 @@ export default function DoodleWall() {
             }
             placeholder="sign your masterpiece..."
             maxLength={40}
+            disabled={saving}
           />
 
           <button
             type="button"
             onClick={saveDoodle}
+            disabled={saving}
           >
-            pin it →
+            {saving
+              ? "saving..."
+              : "pin it →"}
           </button>
 
         </div>
@@ -792,7 +959,16 @@ export default function DoodleWall() {
       </div>
 
 
-      {doodles.length > 0 && (
+      {loading && (
+
+        <p className="loading-note">
+          loading the questionable artwork...
+        </p>
+
+      )}
+
+
+      {!loading && doodles.length > 0 && (
 
         <div className="doodle-wall">
 

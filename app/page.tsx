@@ -6,6 +6,7 @@ import BootScreen from "@/components/BootScreen";
 import MemoryWall from "@/components/MemoryWall";
 import DoodleWall from "@/components/DoodleWall";
 import ChaosCorner from "@/components/ChaosCorner";
+import WishWall from "@/components/WishWall";
 
 export default function Home() {
   const [ready, setReady] = useState(false);
@@ -17,8 +18,9 @@ export default function Home() {
     "stop.",
     "rude.",
     "again?",
-    "i live here now.",
-    "fine. you're forgiven.",
+    "this is assault.",
+    "i am pressing charges.",
+    "fine, one last time okay? Happy Birthday Anupa!"
   ];
 
   const hamsterMessage =
@@ -51,39 +53,47 @@ export default function Home() {
 
   <div className="nav-tabs">
 
-    <a
-      href="#journal"
-      className="nav-tab tab-coral"
-    >
-      <span>01</span>
-      journal
-    </a>
+  <a
+    href="#journal"
+    className="nav-tab tab-coral"
+  >
+    <span>01</span>
+    journal
+  </a>
 
-    <a
-      href="#memories"
-      className="nav-tab tab-blue"
-    >
-      <span>02</span>
-      memories
-    </a>
+  <a
+    href="#memories"
+    className="nav-tab tab-blue"
+  >
+    <span>02</span>
+    memories
+  </a>
 
-    <a
-      href="#doodles"
-      className="nav-tab tab-yellow"
-    >
-      <span>03</span>
-      doodles
-    </a>
+  <a
+    href="#doodles"
+    className="nav-tab tab-yellow"
+  >
+    <span>03</span>
+    doodles
+  </a>
 
-    <a
-      href="#surprises"
-      className="nav-tab tab-sage"
-    >
-      <span>04</span>
-      surprises
-    </a>
+  <a
+    href="#wishes"
+    className="nav-tab tab-sage"
+  >
+    <span>04</span>
+    wishes
+  </a>
 
-  </div>
+  <a
+    href="#surprises"
+    className="nav-tab tab-coral"
+  >
+    <span>05</span>
+    surprises
+  </a>
+
+</div>
 
   <div className="nav-doodle">
     ✦
@@ -349,6 +359,10 @@ export default function Home() {
 
       <DoodleWall />
 
+
+      {/* WISH WALL */}
+
+      <WishWall />
 
       {/* SURPRISES */}
 
