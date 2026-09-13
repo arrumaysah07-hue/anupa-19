@@ -1,69 +1,411 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
+
+import BootScreen from "@/components/BootScreen";
+import MemoryWall from "@/components/MemoryWall";
+import DoodleWall from "@/components/DoodleWall";
+import ChaosCorner from "@/components/ChaosCorner";
 
 export default function Home() {
+  const [ready, setReady] = useState(false);
+  const [boops, setBoops] = useState(0);
+
+  const hamsterMessages = [
+    "hi.",
+    "okay?? 😭",
+    "stop.",
+    "rude.",
+    "again?",
+    "i live here now.",
+    "fine. you're forgiven.",
+  ];
+
+  const hamsterMessage =
+    hamsterMessages[
+      Math.min(boops, hamsterMessages.length - 1)
+    ];
+
+  if (!ready) {
+    return (
+      <BootScreen
+        onComplete={() => setReady(true)}
+      />
+    );
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main className="scrapbook">
+
+      {/* NAV */}
+
+      <nav className="scrap-nav">
+
+  <div className="nav-tape" />
+
+  <div className="nav-brand">
+    <span className="nav-brand-small">THE</span>
+    <span className="nav-brand-main">ANUPA</span>
+    <span className="nav-brand-number">19</span>
+  </div>
+
+  <div className="nav-tabs">
+
+    <a
+      href="#journal"
+      className="nav-tab tab-coral"
+    >
+      <span>01</span>
+      journal
+    </a>
+
+    <a
+      href="#memories"
+      className="nav-tab tab-blue"
+    >
+      <span>02</span>
+      memories
+    </a>
+
+    <a
+      href="#doodles"
+      className="nav-tab tab-yellow"
+    >
+      <span>03</span>
+      doodles
+    </a>
+
+    <a
+      href="#surprises"
+      className="nav-tab tab-sage"
+    >
+      <span>04</span>
+      surprises
+    </a>
+
+  </div>
+
+  <div className="nav-doodle">
+    ✦
+  </div>
+
+</nav>
+
+
+      {/* HERO */}
+
+      <section className="hero">
+
+        <div className="hero-paper">
+
+          <div className="hero-tape" />
+
+          <div className="hero-topline">
+            <span>
+              BIRTHDAY FILE / 19
+            </span>
+
+            <span>
+              ANUPA_19.EXE
+            </span>
+          </div>
+
+
+          <div className="hero-content">
+
+            {/* TEXT */}
+
+            <div className="hero-copy">
+
+              <p className="hero-eyebrow">
+                OFFICIALLY TOO OLD FOR THIS
+              </p>
+
+              <h1>
+                Happy Birthday,
+                <br />
+                <span>Anupa.</span>
+              </h1>
+
+              <div className="hero-scribble">
+                nineteen looks suspiciously good on you.
+              </div>
+
+              <p className="hero-text">
+                A tiny corner of the internet dedicated
+                to one very colourful, slightly chaotic,
+                deeply questionable human being.
+              </p>
+
+              <button
+                className="main-button"
+                type="button"
+                onClick={() =>
+                  document
+                    .getElementById("journal")
+                    ?.scrollIntoView({
+                      behavior: "smooth",
+                    })
+                }
+              >
+                open the chaos →
+              </button>
+
+              <p className="micro-text">
+                *Please keep all limbs inside the scrapbook.
+              </p>
+
+            </div>
+
+
+            {/* INTERACTIVE HAMSTER */}
+
+            <div className="hero-hamster-area">
+
+              <div className="hero-sticker">
+                19!!!
+              </div>
+
+
+              <button
+                type="button"
+                className={`hero-hamster-button ${
+                  boops > 0 ? "booped" : ""
+                }`}
+                onClick={() =>
+                  setBoops((current) => current + 1)
+                }
+                aria-label="Boop the birthday hamster"
+              >
+
+                <div className="hero-hamster">
+
+                  <div className="hero-hamster-ear left" />
+                  <div className="hero-hamster-ear right" />
+
+                  <div className="hero-hamster-face">
+
+                    <span className="hero-hamster-eye left" />
+                    <span className="hero-hamster-eye right" />
+
+                    <b>
+                      {boops > 2 ? "⌣" : "◡"}
+                    </b>
+
+                  </div>
+
+                  <div className="hero-hamster-body" />
+
+                  {boops > 0 && (
+                    <>
+                      <span className="hamster-blush left" />
+                      <span className="hamster-blush right" />
+                    </>
+                  )}
+
+                </div>
+
+              </button>
+
+
+              <div
+                className={`hero-hamster-note ${
+                  boops > 0 ? "visible" : ""
+                }`}
+              >
+                {hamsterMessage}
+              </div>
+
+
+              {boops > 0 && (
+                <div className="boop-pop">
+                  {boops === 1
+                    ? "BOOP!"
+                    : boops === 2
+                    ? "HEY!"
+                    : "😭"}
+                </div>
+              )}
+
+              <p className="hamster-instruction">
+                ↑ touch the hamster
+              </p>
+
+            </div>
+
+          </div>
+
+
+          <div className="hero-bottom-note">
+            ↳ yes, this was necessary.
+          </div>
+
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+      </section>
+
+
+      {/* JOURNAL */}
+
+      <section
+        id="journal"
+        className="journal-section"
+      >
+
+        <div className="section-heading">
+
+          <span>01</span>
+
+          <h2>
+            Okay, so...
+          </h2>
+
         </div>
-      </main>
-    </div>
+
+
+        <div className="journal-grid">
+
+          <article className="note note-pink">
+
+            <span className="pin">
+              ●
+            </span>
+
+            <h3>
+              You’re 19 now.
+            </h3>
+
+            <p>
+              Which sounds extremely adult until
+              you remember that absolutely nobody
+              knows what they're doing.
+            </p>
+
+            <small>
+              — official observation
+            </small>
+
+          </article>
+
+
+          <article className="note note-blue">
+
+            <span className="pin">
+              ●
+            </span>
+
+            <h3>
+              One year later...
+            </h3>
+
+            <p>
+              Somehow we went from random college
+              people to knowing an unreasonable
+              amount about each other.
+            </p>
+
+            <small>
+              suspicious, honestly.
+            </small>
+
+          </article>
+
+
+          <article className="note note-yellow">
+
+            <span className="pin">
+              ●
+            </span>
+
+            <h3>
+              Things I wish for you:
+            </h3>
+
+            <ul>
+              <li>good people</li>
+              <li>good food</li>
+              <li>good sleep</li>
+              <li>less nonsense</li>
+              <li>more money</li>
+            </ul>
+
+            <small>
+              especially the last one.
+            </small>
+
+          </article>
+
+        </div>
+
+      </section>
+
+
+      {/* MEMORY WALL */}
+
+      <MemoryWall />
+
+
+      {/* DOODLE WALL */}
+
+      <DoodleWall />
+
+
+      {/* SURPRISES */}
+
+      <ChaosCorner />
+
+
+      {/* TRANSITION */}
+
+      <section className="little-note">
+
+        <p>
+          And yes...
+        </p>
+
+        <h3>
+          we're still not done.
+        </h3>
+
+        <span>
+          keep scrolling ↓
+        </span>
+
+      </section>
+
+
+      {/* FINAL */}
+
+      <section className="final-card">
+
+        <div className="final-card-tape" />
+
+        <p className="mini-label">
+          END OF DOCUMENT™
+        </p>
+
+        <h2>
+          Happy Birthday,
+          <br />
+          Anupa.
+        </h2>
+
+        <p className="final-message">
+          Somehow you made it to 19.
+          <br />
+          And somehow we all survived the journey.
+        </p>
+
+        <div className="final-scribble">
+          Meri Shanthipriya
+        </div>
+
+        <span className="final-arrow">
+          ↗ now go eat cake
+        </span>
+
+      </section>
+
+    </main>
   );
 }
